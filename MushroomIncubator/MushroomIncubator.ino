@@ -101,6 +101,18 @@ byte degree[8] = // define the degree symbol
  B00000 
 }; 
 
+byte percent[8] = // define the degree symbol 
+{ 
+ B11001, 
+ B11001, 
+ B00010, 
+ B00100, 
+ B00100,
+ B01000, 
+ B10011, 
+ B10011 
+}; 
+
 
 #define DHTPIN 12     // what pin we're connected to
 #define DHTTYPE DHT22   // DHT 22  (AM2302)
@@ -145,12 +157,14 @@ void setup() {
 	KdTemp = 0.1;
 
 	KpHumidity = 850;
-	KiHumidity = 0.5;
+	KiHumidity = 0.5;  
 	KdHumidity = 0.1;
 
 	lcd.begin(16, 2);
 	lcd.clear();
-
+        lcd.createChar(0, degree);
+        lcd.createChar(1, percent);
+        
 	setBacklight(GREEN);
 
 	pinMode(REDLITE, OUTPUT);
@@ -164,8 +178,6 @@ void setup() {
 	pinMode(RelayPinTemp, OUTPUT);
 	pinMode(RelayPinHumidity, OUTPUT);
 	pinMode(RelayPinCO2Exhaust, OUTPUT);
-
-
 
 	dht.begin();
 
@@ -297,8 +309,8 @@ ISR(TIMER2_OVF_vect)
       {
         opState = MAIN;
 	return;
-    		}
-    	}
+      }
+    }
  }
 
 
@@ -313,7 +325,6 @@ ISR(TIMER2_OVF_vect)
         PIDTemp.SetTunings(KpTemp,KiTemp,KdTemp);
         PIDHumidity.SetTunings(KpHumidity,KiHumidity,KdHumidity);
         
-
 	while(buttons == ButtonNone)
 	{
 		DoControl();
@@ -355,8 +366,12 @@ void DoControl()
     currentHumidity = dht.readHumidity();
     currentTemperature = dht.readTemperature();
 
-    // tell each PID object to compute
+    // The origial code that I stole from had code to 
+    // autotune the PIDs.  I keep this commented in here to
+    // remind myself to add the functionality back in now
+    // that I am satisfied with the overall structure.
 
+    // tell each PID object to compute
       /*
         if (tuning) // run the auto-tuner
         {
@@ -367,7 +382,6 @@ void DoControl()
         }
         else // Execute control algorithm
         {
-          
       */
 
      PIDTemp.Compute();
@@ -380,15 +394,13 @@ void DoControl()
     onTimeTemp = PIDOutputTemp; 
     onTimeHumidity = PIDOutputHumidity; 
 
+    // If we are reading bogus values from the DHT, set the time proporions to be off, turning off the relays.
+    
     if (windowSizeTemp == onTimeTemp && currentTemperature == 0)
     {
       onTimeTemp = 0; 
       onTimeHumidity = 0;   
     }
-  
-  Serial.print(onTimeHumidity);
-  Serial.println();
-  
 }
 
 
@@ -419,9 +431,15 @@ void DrivePIDOutputTemp()
 }
 
 
+// ************************************************
+// Called by ISR every 15ms to drive the exhaust fan
+// ************************************************
+
 void DriveOutputCO2Exhaust()
 {
     CO2CycleClicks += 1;
+    
+    // almost 3960 pulses per minute
     int numMinutes = (CO2CycleClicks / 3960) + 1;
     
     // if we surpassed the total amount of minutes, reset
@@ -446,9 +464,6 @@ void DriveOutputCO2Exhaust()
 void DrivePIDOutputHumidity()
 {  
   long now = millis();
-  // Set the PIDOutputTemp
-  // "on time" is proportional to the PID PIDOutputTemp
-
 
   if(now - windowStartTimeHumidity > windowSizeHumidity)
   { //time to shift the Relay Window
@@ -463,7 +478,6 @@ void DrivePIDOutputHumidity()
      digitalWrite(RelayPinHumidity,LOW);
   }
 }
-
 
 
 void setBacklight(int color)
@@ -543,7 +557,8 @@ void DisplayTuneTemp()
     lcd.print("Set Temperature ");
     lcd.setCursor(0,1);
     lcd.print(setpointTemperature);
-
+    lcd.write(byte(0));
+    lcd.print(" F");
 }
 
  void TuneTemp()
@@ -606,6 +621,7 @@ void DisplayTuneCO2()
     lcd.print("Set CO2         ");
     lcd.setCursor(0,1);
     lcd.print(setpointCo2);
+    lcd.print("%");
 }
 
  void TuneCO2()
@@ -660,6 +676,11 @@ void DisplayTuneCO2Numerator()
     lcd.print("Set CO2 Numer   ");
     lcd.setCursor(0,1);
     lcd.print(setpointCO2Numerator);
+    
+    if (setpointCO2Numerator != 1)
+      lcd.print(" minutes on");
+    else
+      lcd.print(" minute on");
 }
 
  void TuneCO2Numerator()
@@ -707,8 +728,6 @@ void DisplayTuneCO2Numerator()
 	}
  }
 
-
-
 void DisplayTuneCO2Denominator()
 {
     lcd.clear();
@@ -716,18 +735,17 @@ void DisplayTuneCO2Denominator()
     lcd.print("Set CO2 Denom   ");
     lcd.setCursor(0,1);
     lcd.print(setpointCO2Denominator);
+    
+    if (setpointCO2Denominator != 1)
+      lcd.print(" minutes total");
+    else
+      lcd.print(" minute total");
 }
 
  void TuneCO2Denominator()
  {
-	 // lcd.clear();
-	 // lcd.print("CO2");
-
-	 // tell PIDs to set their tunings - which are hard const for now
-	 // PIDTemp.SetTunings(KpTemp,KiTemp,KdTemp);
-
     setBacklight(TEAL);
-	DisplayTuneCO2Denominator();
+    DisplayTuneCO2Denominator();
 
 	// tell PIDs to set their tunings - which are hard const for now
 	// PIDTemp.SetTunings(KpTemp,KiTemp,KdTemp);
@@ -772,13 +790,6 @@ void DisplayTuneCO2Denominator()
 	}
  }
 
-
-
-
-
-
-
-
  void DisplayTuneHumidity()
 {
     lcd.clear();
@@ -786,6 +797,7 @@ void DisplayTuneCO2Denominator()
     lcd.print("Set Humidity    ");
     lcd.setCursor(0,1);
     lcd.print(setpointHumidity);
+    lcd.write(byte(1));
 }
 
  void TuneHumidity()
